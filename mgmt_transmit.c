@@ -8,6 +8,8 @@
 #include "mgmt_types.h"
 #include "socketUDP.h"
 #include "SocketTCP.h"
+#include <sys/stat.h>
+#include <time.h>
 
 
 uint8_t SELFID;
@@ -23,7 +25,12 @@ uint8_t RX_CHANNEL_MODE_INIT;
 uint8_t SELFIP_s[4] = {192, 168, 2, 32};
 uint8_t DEVICETYPE_INIT;
 uint32_t HOP_FREQ_TB_INIT[32];
-
+Node_Xwg_Pairs param_pairs[] = {
+        {"channel", 0, 0},{"power", 0, 0},{"bw", 0, 0},{"mcs", 0, 0},
+        {"macmode", 0, 0},{"slotlen", 0, 0},{"router", 0, 0},{"workmode", 0, 0},
+		{"select_freq1", 0, 0},{"select_freq2", 0, 0},{"select_freq3", 0, 0},{"select_freq4", 0, 0},
+		{"sync_mode",0,0},{"kylb",0,0}
+    };
 
 uint8_t g_u8SLOTLEN;
 uint8_t POWER_LEVEL_INIT;
@@ -142,7 +149,53 @@ void mgmt_system_init(void) {
     SELFID = 1; 
     printf("[System Init] 初始化完成！\n");
 }
+void monitor_xwg_config(void) {
+    // 关键点：使用 static，让它能“记住”上一次的修改时间
+    static time_t last_mtime = 0; 
+    struct stat file_stat;
 
+    // 尝试获取文件当前状态
+    if (stat("/etc/node_xwg", &file_stat) == 0) {
+        
+        // 1. 如果是刚开机第一次运行，先记录一下初始时间就退出
+        if (last_mtime == 0) {
+            last_mtime = file_stat.st_mtime;
+            return; 
+        }
+
+        // 2. 如果发现当前的修改时间，和记忆中的时间对不上！
+        if (file_stat.st_mtime != last_mtime) {
+            printf("[独立监控] 侦测到 /etc/node_xwg 被 WinSCP 修改！\n");
+            
+            // 更新记忆时间，防止无限重复触发
+            last_mtime = file_stat.st_mtime;
+
+            read_node_xwg_file("/etc/node_xwg", param_pairs, MAX_XWG_PAIRS); // 重新读取文件，更新全局变量
+            for (int i = 0; i < MAX_XWG_PAIRS; i++) {
+                if (param_pairs[i].found == 1) {
+                    if (strcmp(param_pairs[i].key, "channel") == 0) {
+                        FREQ_INIT = atoi(param_pairs[i].value); // 字符串转整数
+                    } 
+                    else if (strcmp(param_pairs[i].key, "bw") == 0) {
+                        BW_INIT = atoi(param_pairs[i].value);
+                    }
+                    else if (strcmp(param_pairs[i].key, "power") == 0) {
+                        POWER_INIT = atoi(param_pairs[i].value);
+                    }
+                    else if (strcmp(param_pairs[i].key, "rate") == 0) {
+                        MCS_INIT = atoi(param_pairs[i].value);
+                    }
+                    else if (strcmp(param_pairs[i].key, "device_type") == 0) {
+                        DEVICETYPE_INIT = atoi(param_pairs[i].value);
+                    }
+                }
+            }
+            printf("[独立监控] 内存变量更新完毕！准备触发数据库同步...\n");
+            // 举起标志位，告诉其他模块数据变了，赶紧去刷库！
+            g_config_dirty = 1; 
+        }
+    }
+}
 void mgmt_get_msg(void) {
     printf("[Data Engine] 启动动态数据刷新线程...\n");
     stInData stdata;
@@ -166,16 +219,20 @@ void mgmt_get_msg(void) {
     sprintf(stdata.name, "g_ver"); sprintf(stdata.value, "%s", version); stdata.state[0] = '1'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
     
     // 写入正常的配置参数
-    sprintf(stdata.name, "rf_freq"); sprintf(stdata.value, "%d", FREQ_INIT); stdata.state[0] = '0'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
-    sprintf(stdata.name, "m_chanbw"); sprintf(stdata.value, "%d", bw_encoded); stdata.state[0] = '0'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
-    sprintf(stdata.name, "m_txpower"); sprintf(stdata.value, "%d", power_encoded); stdata.state[0] = '0'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
-    sprintf(stdata.name, "m_rate"); sprintf(stdata.value, "%d", MCS_INIT); stdata.state[0] = '0'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
-    sprintf(stdata.name, "devicetype"); sprintf(stdata.value, "%d", DEVICETYPE_INIT); stdata.state[0] = '0'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
+    sprintf(stdata.name, "rf_freq"); sprintf(stdata.value, "%d", FREQ_INIT); stdata.state[0] = '1'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
+    sprintf(stdata.name, "m_chanbw"); sprintf(stdata.value, "%d", bw_encoded); stdata.state[0] = '1'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
+    sprintf(stdata.name, "m_txpower"); sprintf(stdata.value, "%d", power_encoded); stdata.state[0] = '1'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
+    sprintf(stdata.name, "m_rate"); sprintf(stdata.value, "%d", MCS_INIT); stdata.state[0] = '1'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
+    sprintf(stdata.name, "devicetype"); sprintf(stdata.value, "%d", DEVICETYPE_INIT); stdata.state[0] = '1'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
 
     // 【开机立刻强行同步一次，让网页一打开就能读到初始值！】
     system("cp /www/cgi-bin/test.db /www/cgi/test.db");
-    
+
+
+
     while (1) {
+
+        monitor_xwg_config();
         loop_count++;
         
         // --- 补充前端必备的基石字段 ---
@@ -203,12 +260,12 @@ void mgmt_get_msg(void) {
             if (DEVICETYPE_INIT == 3) current_power = POWER_INIT; 
             else current_power = 39 - POWER_INIT;
 
-            sprintf(stdata.name, "rf_freq"); sprintf(stdata.value, "%d", FREQ_INIT); stdata.state[0] = '0'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
-            sprintf(stdata.name, "m_chanbw"); sprintf(stdata.value, "%d", current_bw); stdata.state[0] = '0'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
-            sprintf(stdata.name, "m_txpower"); sprintf(stdata.value, "%d", current_power); stdata.state[0] = '0'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
-            sprintf(stdata.name, "m_rate"); sprintf(stdata.value, "%d", MCS_INIT); stdata.state[0] = '0'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
-            sprintf(stdata.name, "devicetype"); sprintf(stdata.value, "%d", DEVICETYPE_INIT); stdata.state[0] = '0'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
-            
+            sprintf(stdata.name, "rf_freq"); sprintf(stdata.value, "%d", FREQ_INIT); stdata.state[0] = '1'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
+            sprintf(stdata.name, "m_chanbw"); sprintf(stdata.value, "%d", current_bw); stdata.state[0] = '1'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
+            sprintf(stdata.name, "m_txpower"); sprintf(stdata.value, "%d", current_power); stdata.state[0] = '1'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
+            sprintf(stdata.name, "m_rate"); sprintf(stdata.value, "%d", MCS_INIT); stdata.state[0] = '1'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
+            sprintf(stdata.name, "devicetype"); sprintf(stdata.value, "%d", DEVICETYPE_INIT); stdata.state[0] = '1'; stdata.lib[0] = '0'; updateData_meshinfo(stdata);
+                        
             g_config_dirty = 0; // 清除脏标志，等待下一次用户修改
             printf("[Data Engine] 侦测到配置改变，已安全同步至数据库下拉框！\n");
         }
@@ -224,7 +281,7 @@ void mgmt_get_msg(void) {
 
         // 强力同步，把 cgi-bin 里最新的心跳刷给网页
         system("cp /www/cgi-bin/test.db /www/cgi/test.db");
-
+        g_config_dirty = 0;
         sleep(5);
     }
 }
