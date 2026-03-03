@@ -1,0 +1,5 @@
+*.o
+ui_app
+*.db
+*.db.bak
+*db.tmp
