@@ -173,7 +173,7 @@ int8_t Send_0x05(int fd,void* info)
     double t_lon,t_lat;
     uint16_t t_alit;
 
-    Frame_05_byte frame_send ;
+    Frame_05_byte frame_send;
     int BYTE05SIZE=sizeof(Frame_05_byte);
     memset(&frame_send,0,BYTE05SIZE);
     

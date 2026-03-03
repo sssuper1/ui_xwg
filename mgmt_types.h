@@ -296,7 +296,11 @@ typedef struct __attribute__((__packed__)) {
 	uint16_t selfid;
 	uint32_t selfip;
 }Snodefind;
-
+/*
+ * Emgmt_header_type
+ * - 功能: 管理消息头部中的标志位定义（位域），用于指示要设置或查询的具体项
+ * - 例如 MGMT_SET_FREQUENCY 表示本次消息包含频率设置字段
+ */
 typedef enum EMGMT_HEADER_TYPE {
 	MGMT_LOGIN = 0x0000,
 	MGMT_SET_ID = 0x01,
@@ -322,11 +326,7 @@ typedef enum EMGMT_HEADER_TYPE {
 #endif	
 } Emgmt_header_type;
 
-/*
- * Emgmt_header_type
- * - 功能: 管理消息头部中的标志位定义（位域），用于指示要设置或查询的具体项
- * - 例如 MGMT_SET_FREQUENCY 表示本次消息包含频率设置字段
- */
+
 
 typedef enum EMGMT_HEADER_PHY_TYPE {
 	MGMT_SET_SLOTLEN = 0x0001,

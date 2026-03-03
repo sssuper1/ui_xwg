@@ -49,10 +49,6 @@ void mgmt_system_init(void) {
     uint8_t cmd[200];
     printf("[System Init] 开始读取配置文件 /etc/node_xwg...\n");
 
-    // 赋默认值，防止文件读取失败
-    FREQ_INIT = 1400;
-    BW_INIT = 10;
-    POWER_INIT = 30;
 
     if ((file_node = fopen("/etc/node_xwg", "r")) != NULL) {
         while (fgets(nodemessage, sizeof(nodemessage), file_node) != NULL) {
